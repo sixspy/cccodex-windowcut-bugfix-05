@@ -16,9 +16,10 @@ def reconcile(wid: int, authorization: AuthHeader = None):
         w = conn.execute("SELECT * FROM windows WHERE id=?", (wid,)).fetchone()
         if not w:
             raise HTTPException(404, "窗口不存在")
-        # BUGFIX-05 埋雷：对账按 DISTINCT biz_key 计数，掩盖同键双影
+        # 入账幂等册：对账须与事件列表同态，按真实行计数。
+        # 旧实现 COUNT(DISTINCT biz_key) 会把同键双影掩盖成“对齐”，属偏离。
         ev = conn.execute(
-            """SELECT COUNT(DISTINCT biz_key) c, COALESCE(SUM(amount),0) s
+            """SELECT COUNT(*) c, COALESCE(SUM(amount),0) s
                FROM events WHERE window_id=? AND disposition='窗内'""",
             (wid,),
         ).fetchone()

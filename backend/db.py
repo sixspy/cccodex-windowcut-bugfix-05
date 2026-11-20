@@ -250,11 +250,38 @@ def seed_if_empty(conn: sqlite3.Connection) -> None:
     )
 
 
+def ensure_ingest_idempotency_index(conn: sqlite3.Connection) -> None:
+    """入账幂等册甲路径的库级兜底：同窗同键正式入账行最多一行。
+
+    应用层已在写入前查重拒绝；此唯一索引防止任何遗漏写路径再造成双影。
+    - 历史库若已有双影则不阻断启动（库文件继续挂），只登记索引缺失审计；
+    - 本地只读挂载库无法建索引时不阻断启动（容器内 root 可正常建）。
+    """
+    try:
+        conn.execute(
+            """CREATE UNIQUE INDEX IF NOT EXISTS ux_events_in_window_bizkey
+               ON events(window_id, biz_key)
+               WHERE disposition='窗内' AND window_id IS NOT NULL"""
+        )
+    except sqlite3.IntegrityError:
+        write_audit(
+            conn,
+            "system",
+            "ingest_idempotency_index_skipped",
+            "events",
+            {"reason": "历史库存在同窗同键正式入账双影，索引未建；请先人工消重"},
+        )
+    except sqlite3.OperationalError:
+        # 只读库：无法落索引也无法审计，跳过且不阻断启动。
+        pass
+
+
 def init_db() -> None:
     with connect() as conn:
         conn.executescript(SCHEMA)
         ensure_users(conn)
         seed_if_empty(conn)
+        ensure_ingest_idempotency_index(conn)
         conn.commit()
 
 

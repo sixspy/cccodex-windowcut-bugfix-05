@@ -55,3 +55,13 @@ python -m pip install -r requirements.txt
 python -m uvicorn app:app --app-dir backend --host 127.0.0.1 --port 10605
 python -m pytest -q
 ```
+
+## 入账幂等（BUGFIX-05）
+
+正确性口径已钉死在 [`ops/入账幂等册.md`](ops/入账幂等册.md)：**甲路径 — 查重拒绝**，生效日 2026-11-20 当天锁定。
+
+- 同窗同 `biz_key` 已有正式入账行 → 整笔拒绝（409），正式零增，落 `ingest_dup_skip` 审计；
+- 并发同键先占独占键锁 `ingest-key:<window>:<biz_key>`，后到只记 `contention_log`；
+- 对账按真实行计数，禁止 `COUNT(DISTINCT biz_key)` 掩护双影；
+- 实现偏离幂等册时拒写并记审计 `幂等偏了`。
+- 对应回归：`tests/test_ingest_idempotency.py`（双影 / 同键争用 / 真并发 / 偏离拒写）。
